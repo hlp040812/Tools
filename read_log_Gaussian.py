@@ -64,23 +64,26 @@ class Read_log_Gaussian(object):
         self.goodtypelist = ["Full",
                              "Partial Done"]
         self.type = None
+        
         self.pre_check()
+        self.en = self.read_energy()
+        self.xyz = self.read_xyz()
+        self.post_check()
         
     
     def pre_check(self):
         '''
+        Check en.
         Generally, there are 10 or 20 energy frames in "Done", and
         there are 11 xyz frames of "Standard orientation".
-        If so, return True,
-        otherwise return False.
         '''
         log = self.log
         popen_input_energy = 'grep "Done" {} | wc -l'.format(log)
         ndone = int(os.popen(popen_input_energy).read())
-#         print(ndone)
+        # print(ndone)
         popen_input_so = 'grep "Standard orientation:" {} | wc -l'.format(log)
         nso = int(os.popen(popen_input_so).read())
-#         print(nso)
+        # print(nso)
         if ndone >= self.steps and nso == self.steps+1:
             self.type = "Full"
         elif ndone == 1 and nso == 1:
@@ -89,12 +92,23 @@ class Read_log_Gaussian(object):
             self.type = "Partial Done"
         
     
-    def frame_duplicate_check(self, log, index, counts):
+    def post_check(self):
         '''
+        Check number of frames,
+        energy == xyz 
+        '''
+        if self.type in self.goodtypelist:
+            if self.en.shape[0] != self.xyz.shape[0]:
+                self.type = "Energy and xyz NOT match"
+            
+            
+    def frame_duplicate_check(self, index, counts):
+        '''
+        Check xyz.
         index and counts are return results of numpy.unique.
         '''
-#         print(index)
-#         print(counts)
+        # print(index)
+        # print(counts)
         once = np.count_nonzero ( counts == 1 )
         twice = np.count_nonzero ( counts == 2 )
         
@@ -102,7 +116,7 @@ class Read_log_Gaussian(object):
             index_duplicate = np.nonzero( counts == 2 )[0][0]
             index_last_frame = np.argmax(index)
             if not index_duplicate == index_last_frame:
-                print('{}: duplicate frame is not the last frame!'.format(log))
+                print('{}: duplicate frame is not the last frame!'.format(self.log))
         else:
             self.type = "Energy and xyz NOT match"
         
@@ -114,8 +128,7 @@ class Read_log_Gaussian(object):
             popen_input_energy = 'grep "Done" ' + log + " | awk '{print $5}' "
             en_str = os.popen(popen_input_energy).read()
             energies = np.fromstring(en_str, dtype=np.float64, sep='\n')
-            self.en = energies
-            return self.en
+            return energies
             
         else:
             popen_input_energy = 'grep -B 1 "Done" ' + log
@@ -139,8 +152,7 @@ class Read_log_Gaussian(object):
             energies = full_energy[check_result].drop(['first_line'], axis=1).applymap(get_num)
             energies.index = range(1, energies.shape[0]+1)
             
-            self.en = energies.values.flatten()
-            return self.en # return 1-D numpy array
+            return energies.values.flatten() # return 1-D numpy array
 
         
     def read_xyz(self, num_tail=5):
@@ -163,12 +175,11 @@ class Read_log_Gaussian(object):
             xyz = np.fromstring(cords_str, dtype=np.float64, sep=' ')
             xyz = xyz.reshape(-1, nat, 3)
             (_, index, counts) = np.unique(xyz, axis=0, return_index=True, return_counts=True)
-            self.frame_duplicate_check(log, index, counts)
+            self.frame_duplicate_check(index, counts)
             if self.type == "Energy and xyz NOT match":
                 return False
             xyz = xyz [ np.sort(index) ]
-            self.xyz = xyz
-            return self.xyz
+            return xyz
             
         elif self.type in self.badtypelist:
             return False

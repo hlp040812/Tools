@@ -1,3 +1,7 @@
+# by Luping
+read_log_Gaussian_backup.py
+remove_abnormal_energy.ipynb
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
