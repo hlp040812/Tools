@@ -39,12 +39,12 @@ def write_xyz(fout, xyz, en, num_atoms, name_molecule=None):
     fout = new_file_name(fout)
 
     with open(fout, 'w') as f:
-        for cords, en in zip(xyz, en):
+        for cords, e in zip(xyz, en):
             f.write('{}\n'.format(num_atoms))
             if name_molecule:
-                f.write('{} = {:15.8f}\n'.format(name_molecule, en))
+                f.write('{} = {:15.8f}\n'.format(name_molecule, e))
             else:
-                f.write('{} = {:15.8f}\n'.format(en[0], en[1]))
+                f.write('{} = {:15.8f}\n'.format(e[0], e[1]))
             for cord in cords:
                 f.write('{:>7s}{:15.8f}{:15.8f}{:15.8f}\n'.format(cord[0], cord[1], cord[2], cord[3]))
 

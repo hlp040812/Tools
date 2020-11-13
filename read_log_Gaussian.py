@@ -3,183 +3,184 @@
 
 import numpy as np
 import pandas as pd
-import sys, os
+import sys, os, re, glob
 from io import StringIO
-import re
 
-pd.options.display.max_rows = None
-pd.options.display.max_colwidth = 100
-
-
-def check_converge_criterion(my_str):
-    return 'Convergence criterion not met' not in my_str
+def check_converge_criterion(mystr):
+    '''
+    If there is "Convergence criterion not met" keyword before the energy line like:
+    
+    >>>>>>>>>> Convergence criterion not met.
+    SCF Done:  E(RTPSSh) =  -835.173022374     A.U. after   65 cycles
+    
+    then this energy will not come with a "Standard orientation".
+    So just remove it.
+    
+    HOWEVER !!
+    If keyword "IOp(5/13=1)" is given,
+    though Convergence criterion not met, still dump a "Standard orientation".
+    '''
+    return 'Convergence criterion not met' not in mystr
 
 
 def get_num(my_str):
-    return my_str.split()[4]
+    return float(my_str.split()[4])
 
 
-def read_log_Gaussian(log_file, element='Pt', num_atoms=9, num_tail=5):
-    ######## First, read energy ##########
-    # Reading energy is more complicated than I thought.
-    # Some energy do NOT meet Convergence criterion, have to get rid of them.
+def enprint(en):
+    plt.plot(range(en.shape[0]), en, ".")
+    plt.show()
     
-    # These are two ways to make energies as <float>.
-    # 1, np.array
-    # 2, use pandas.DataFrame in this case
-    # popen_input_energy = 'grep "SCF Done:  E(RTPSSh) =" ' + log_file + ' | awk \'{print $5}\''
-    # # energies = np.fromstring(os.popen(popen_input_energy).read(), dtype=float, sep='\n')
-    # energies = pd.read_csv(StringIO(
-    #            os.popen(popen_input_energy).read()), sep='\n', header=None, names=['energy'])
+
+class Read_log_Gaussian(object):
+    '''
+    Example:
     
-#     popen_input_energy = 'grep -B 1 "SCF Done:  E(RTPSSh) =" ' + log_file
-    popen_input_energy = 'grep -B 1 "SCF Done:  E" ' + log_file
-    screen_energy = pd.read_csv(StringIO(os.popen(popen_input_energy).read()), sep='\n', header=None)
-    screen_energy = screen_energy[screen_energy.iloc[:, 0] != '--']
-    screen_energy.index = range(screen_energy.shape[0])
-    first_line = screen_energy.iloc[range(0,screen_energy.shape[0],2), 0]
-    first_line.index = range(int(screen_energy.shape[0]/2))
-    energy_line = screen_energy.iloc[range(1,screen_energy.shape[0],2), 0]
-    energy_line.index = range(int(screen_energy.shape[0]/2))
-    full_energy = pd.concat([first_line, energy_line], axis=1)
-    full_energy.columns = ['first_line', 'energy_line']
-    check_result = full_energy.iloc[:,0].map(check_converge_criterion)
-#     try:
-#         print('{}/{}: Convergence criterion not met = {}'.format\
-#               (log_file.split('/')[-2], log_file.split('/')[-1], check_result.value_counts()[False]))
-#     except KeyError:
-#         pass
-    energies = full_energy[check_result].drop(['first_line'], axis=1).applymap(get_num)
-    energies.index = range(1, energies.shape[0]+1)
-    ######## Done read energy ##########
+    log = "../Gaussian/Ta9/10-steps-DFT-outputs/M2/Ta9-M2-96.log"
+    t = read_log_Gaussian(log, element='Ta', num_atoms=9, steps=10)
+    en = t.read_energy()
+    xyz = t.read_xyz()
     
-   
-    ######## Second, read Coordinates as float64. ##########
-#     full_xyz = os.popen('grep -A {} "Standard orientation:" '.format(num_atoms+num_tail) + log_file).read()
+    or try:
+    nn_fitting/gen_pgopt_input_from_Gaussian_logs.ipynb
     
-#     if num_frames == 1:
-#         skip_rows = np.array([0,1,2,3,4,12])
-#     elif num_frames > 1:
-#         skip_rows = np.empty(0, dtype=int)
-#         for i in range(num_frames+1):
-#             skip_rows = np.hstack(
-#                                 (skip_rows,
-#                                 np.arange(i*(num_atoms+num_tail+2), i*(num_atoms+num_tail+2)+num_tail)))
-#             skip_rows = np.hstack(
-#                                 (skip_rows,
-#                                 np.arange(i*(num_atoms+num_tail+2)+num_atoms+num_tail, 
-#                                           i*(num_atoms+num_tail+2)+num_atoms+num_tail+1)))
-#             if i < num_frames:
-#                 skip_rows = np.hstack((skip_rows, i*(num_atoms+num_tail+2)+num_atoms+num_tail+1))
+    self.type = 
+            "Full"
+            "Convergence Problem"
+            "Partial Done"
+            "Energy and xyz NOT match"
+    '''
+    
+    def __init__(self, log, element='Pt', num_atoms=9, steps=10, IOp=False):
+        if IOp not in (True, False):
+            raise TypeError("IOp must be True/False.")
+        self.log = log
+        self.num_atoms = num_atoms
+        self.element = element
+        self.steps = steps
+        self.IOp = IOp
+        self.badtypelist = ["Convergence Problem",
+                         "Energy and xyz NOT match"]
+        self.goodtypelist = ["Full",
+                             "Partial Done"]
+        self.type = None
+        self.pre_check()
         
-#     xyz = pd.read_csv(StringIO(full_xyz),
-#                     sep='\s+',
-#                     header=None,
-#                     names=['x','y','z'],
-#                     usecols=[3,4,5],
-#                     skiprows=skip_rows)
-#     xyz.insert(loc=0, column=element, value=((element+' ')*xyz.shape[0]).split())
     
-#     # Define DataFrame index
-#     if xyz.shape[0] % num_atoms != 0:
-#         print('Warning: \n{}/{}: Should be {} atoms in one frame.'.format\
-#               (log_file.split('/')[-2], log_file.split('/')[-1], num_atoms))
-#     num_loop = int(xyz.shape[0] / num_atoms)
-#     index_layer_1 = np.array([], dtype=np.int64)
-#     for i in range(num_loop):
-#         index_layer_1 = np.hstack((index_layer_1, np.ones(num_atoms, dtype=np.int64) * (i+1)))
-#     index_layer_2 = np.arange(1, num_atoms*(num_loop)+1)
-#     my_index = [index_layer_1, index_layer_2]
-#     xyz.index = my_index
-    ######### Done. read Coordinates as float64. ##########
+    def pre_check(self):
+        '''
+        Generally, there are 10 or 20 energy frames in "Done", and
+        there are 11 xyz frames of "Standard orientation".
+        If so, return True,
+        otherwise return False.
+        '''
+        log = self.log
+        popen_input_energy = 'grep "Done" {} | wc -l'.format(log)
+        ndone = int(os.popen(popen_input_energy).read())
+#         print(ndone)
+        popen_input_so = 'grep "Standard orientation:" {} | wc -l'.format(log)
+        nso = int(os.popen(popen_input_so).read())
+#         print(nso)
+        if ndone >= self.steps and nso == self.steps+1:
+            self.type = "Full"
+        elif ndone == 1 and nso == 1:
+            self.type = "Convergence Problem"
+        elif ndone > 1 and nso > 1:
+            self.type = "Partial Done"
+        
     
-    
-    ######## Second, read Coordinates as string. ##########
-    popen_input_so = 'grep -A {} "Standard orientation:" '.format(num_atoms+num_tail) + log_file
-    # os.popen(popen_input_so).read()
-    # '[-]?[0-9]+\.[0-9]+'   ## float re
-    # '\-?[0-9]+'            ## int re
-    # '[-]?[0-9]+\.?[0-9]*'  ## float or int re
-    ### This regular expression: float+float+float
-    cords_str_list = re.findall(
-        '[-]?[0-9]+\.?[0-9]+\s+[-]?[0-9]+\.?[0-9]+\s+[-]?[0-9]+\.?[0-9]+', 
-        os.popen(popen_input_so).read())
-    cords_str = ''
-    for i in cords_str_list:
-        cords_str = cords_str + i + '\n'
-    
-    xyz = pd.read_csv(StringIO(cords_str), sep='\n', header=None, names=['cordinates'])
-    xyz.insert(loc=0, column=element, value=((element+' ')*xyz.shape[0]).split())
-    
-    # Define DataFrame index
-    if xyz.shape[0] % num_atoms != 0:
-        print('Warning: \n{}/{}: Should be {} atoms in one frame.'
-              .format(log_file.split('/')[-2], log_file.split('/')[-1], num_atoms))
-#     num_loop = int(xyz.shape[0] / num_atoms)
-#     index_layer_1 = np.array([], dtype=np.int64)
-#     for i in range(num_loop):
-#         index_layer_1 = np.hstack((index_layer_1, np.ones(num_atoms, dtype=np.int64) * (i+1)))
-#     index_layer_2 = np.arange(1, num_atoms*(num_loop)+1)
-#     my_index = [index_layer_1, index_layer_2]
-    my_index = pd.MultiIndex.from_product(
-        [range(1, int(xyz.shape[0] / num_atoms)+1), range(1, num_atoms+1)], 
-        names=['layer1', 'layer2'])
-    xyz.index = my_index
-    ######## Done. read Coordinates as string. ##########
-    
-    
-    ######### Remove the duplicates of the frames. ##########
-#     print(energies.index[energies.duplicated(keep=False)].tolist())
-#     print(xyz.index[xyz.duplicated(keep=False)].tolist())
-    energies.drop_duplicates(inplace=True)
-    xyz.drop_duplicates(inplace=True)
-#     print(energies.index.tolist())
-#     num_frames_energy = energies.shape[0]
-#     num_frames_xyz = int(xyz.shape[0] / num_atoms)
-    if xyz.shape[0] % num_atoms != 0:
-        print('Warning: \n{}/{}: Should be {} atoms in one frame after drop_duplicates.'
-              .format(log_file.split('/')[-2], log_file.split('/')[-1], num_atoms))
-    if xyz.index.remove_unused_levels().levels[0].tolist() != energies.index.tolist():
-        print('{}/{}: xyz frame != energies frame. (Something went wrong)'
-              .format(log_file.split('/')[-2], log_file.split('/')[-1]))
-    ######### Done. Remove the duplicates of the frames. ##########
-    
-    return energies, xyz, num_atoms
+    def frame_duplicate_check(self, log, index, counts):
+        '''
+        index and counts are return results of numpy.unique.
+        '''
+#         print(index)
+#         print(counts)
+        once = np.count_nonzero ( counts == 1 )
+        twice = np.count_nonzero ( counts == 2 )
+        
+        if twice == 1 and np.count_nonzero(counts >= 3) == 0:
+            index_duplicate = np.nonzero( counts == 2 )[0][0]
+            index_last_frame = np.argmax(index)
+            if not index_duplicate == index_last_frame:
+                print('{}: duplicate frame is not the last frame!'.format(log))
+        else:
+            self.type = "Energy and xyz NOT match"
+        
+        
+    def read_energy(self):
+        log = self.log
+        
+        if self.IOp:
+            popen_input_energy = 'grep "Done" ' + log + " | awk '{print $5}' "
+            en_str = os.popen(popen_input_energy).read()
+            energies = np.fromstring(en_str, dtype=np.float64, sep='\n')
+            self.en = energies
+            return self.en
+            
+        else:
+            popen_input_energy = 'grep -B 1 "Done" ' + log
+            
+            screen_energy = pd.read_csv(StringIO(os.popen(popen_input_energy).read()), sep='\n', header=None)
+            screen_energy = screen_energy[screen_energy.iloc[:, 0] != '--']
+            
+            screen_energy.index = range(screen_energy.shape[0])
 
+            first_line = screen_energy.iloc[range(0,screen_energy.shape[0],2), 0]
+            first_line.index = range(int(screen_energy.shape[0]/2))
+            
+            energy_line = screen_energy.iloc[range(1,screen_energy.shape[0],2), 0]
+            energy_line.index = range(int(screen_energy.shape[0]/2))
+            
+            full_energy = pd.concat([first_line, energy_line], axis=1)
+            full_energy.columns = ['first_line', 'energy_line']
 
-############### Check "SCF Done" and "Standard orientation" manually. ##################
-# for i in range(num_logs):
-#     log_file = full_inputs.loc[i, 'log_file']
-    
-#     popen_input_energy = 'grep "SCF Done:  E(RTPSSh) =" ' + log_file + ' | awk \'{print $5}\''
-#     energies = pd.read_csv(StringIO(os.popen(popen_input_energy).read()), sep='\n', header=None, names=['energy'])
-    
-#     popen_input_so = 'grep "Standard orientation:" ' + log_file
-#     so = pd.read_csv(StringIO(os.popen(popen_input_so).read()), sep='\n', header=None, names=['so'])
-    
-#     if so.shape[0] <= energies.shape[0]:
-#         print(log_file.split('/')[-2],log_file.split('/')[-1], ': xyz <= energy', so.shape[0]-energies.shape[0])
-# #     elif so.shape[0] - energies.shape[0] == 1:
-# #         print(log_file, ': standard orientation - SCF Done = 1. GOOD!')
+            check_result = full_energy.iloc[:,0].map(check_converge_criterion)
+
+            energies = full_energy[check_result].drop(['first_line'], axis=1).applymap(get_num)
+            energies.index = range(1, energies.shape[0]+1)
+            
+            self.en = energies.values.flatten()
+            return self.en # return 1-D numpy array
+
+        
+    def read_xyz(self, num_tail=5):
+        log = self.log
+        nat = self.num_atoms
+        popen_input_so = 'grep -A {} "Standard orientation:" '.format(nat+num_tail) + log
+        # '[-]?[0-9]+\.[0-9]+'   ## float re
+        # '\-?[0-9]+'            ## int re
+        # '[-]?[0-9]+\.?[0-9]*'  ## float or int re
+        ### This regular expression: float+float+float
+        cords_str_list = re.findall(
+            '[-]?[0-9]+\.?[0-9]+\s+[-]?[0-9]+\.?[0-9]+\s+[-]?[0-9]+\.?[0-9]+', 
+            os.popen(popen_input_so).read())
+
+        cords_str = ''
+        for i in cords_str_list:
+            cords_str = cords_str + i + '\n'
+        
+        if self.type in self.goodtypelist:
+            xyz = np.fromstring(cords_str, dtype=np.float64, sep=' ')
+            xyz = xyz.reshape(-1, nat, 3)
+            (_, index, counts) = np.unique(xyz, axis=0, return_index=True, return_counts=True)
+            self.frame_duplicate_check(log, index, counts)
+            if self.type == "Energy and xyz NOT match":
+                return False
+            xyz = xyz [ np.sort(index) ]
+            self.xyz = xyz
+            return self.xyz
+            
+        elif self.type in self.badtypelist:
+            return False
+
 
 
 if __name__ == "__main__":
-    ## Convergence criterion==2
-    log_test = os.path.join(
-        os.path.expandvars('$ACNNHOME'), 
-        'tests/Gaussian/Pt7-4850/output_files/Pt7-5/Pt7-287.log')
-#     ## Normal
-#     log_test = os.path.join(
-#         os.path.expandvars('$ACNNHOME'), 
-#         'tests/Gaussian/Pt7-4850/output_files/Pt7-2/Pt7-63.log')
-#     ## xyz==energy==1
-#     log_test = os.path.join(
-#         os.path.expandvars('$ACNNHOME'), 
-#         'tests/Gaussian/Pt7-4850/output_files/Pt7-2/Pt7-94.log')
-#     ## xyz==energy
-#     log_test = os.path.join(
-#         os.path.expandvars('$ACNNHOME'), 
-#         'tests/Gaussian/Pt7-4850/output_files/Pt7-10/Pt7-485.log')
-    
-    energies, xyz, num_atoms = read_log_Gaussian(log_test)
+    log = "/media/luping/Work/Practice/PGOPT-PROGRAMS/ACNN/tests/Gaussian/Ta9/10-steps-DFT-outputs/M2/Ta9-M2-96.log"
+    t = Read_log_Gaussian(log, element='Ta', num_atoms=9, steps=10)
+    en = t.read_energy()
+    xyz = t.read_xyz()
+    print(t.type)
+    # print(en)
+    # enprint(en)
 
