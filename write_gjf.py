@@ -5,7 +5,6 @@ import numpy as np
 import pandas as pd
 import sys, os
 sys.path.append(os.path.dirname(os.path.expanduser('~/Tools/')))
-from read_xyz import Read_xyz
 from avoid_overwritting import new_file_name
 
 
@@ -26,7 +25,7 @@ def check_gjf(path):
 
 def write_gjf(output_path, format_file, 
               num_before_coord, num_after_coord, 
-              num_atoms, num_frames, coord, el='Pt', M=1):
+              num_atoms, num_frames, xyz, M=1):
     
     ## check output path
     if os.path.exists(output_path):
@@ -45,14 +44,13 @@ def write_gjf(output_path, format_file,
     with open(format_file, 'r') as fread:
         for line in fread.readlines()[num_after_coord-1:]:  # in this case, let's copy line 18->end
             lines_input_2 += line
-            
-    for i in range(1, num_frames+1):
-        output_file = os.path.join(output_path, '{}{}-M{}-{}.gjf'.format(el, num_atoms, M, i))
+
+    for i, cords in  enumerate(xyz):
+        output_file = os.path.join(output_path, '{}{}-M{}-{}.gjf'.format(xyz[0][0][0], num_atoms, M, i+1))
         with open(output_file, 'w') as fwrite:
-            fwrite.write('%chk={}{}-M{}-{}.chk\n'.format(el, num_atoms, M, i))
+            fwrite.write('%chk={}{}-M{}-{}.chk\n'.format(xyz[0][0][0], num_atoms, M, i+1))
             fwrite.write(lines_input_1)
-        coord.loc[i, :].to_csv(output_file, mode='a+', 
-                              index=False, header=False, 
-                              sep=' ', quotechar=' ', float_format='%15.8f')
-        with open(output_file, 'a+') as fwrite:
+            for cord in cords:
+                fwrite.write('{:<5s}{:15.8f}{:15.8f}{:15.8f}\n'.format(cord[0], cord[1], cord[2], cord[3]))
             fwrite.write(lines_input_2)
+
